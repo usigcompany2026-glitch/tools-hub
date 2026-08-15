@@ -4,7 +4,7 @@ import LoginForm from "./LoginForm";
 
 export const metadata: Metadata = {
   title: "Sign in",
-  description: "Sign in to your USIG Decision Tools account with a magic link or Google.",
+  description: "Sign in to your USIG Decision Tools account with your email and password, or Google.",
   alternates: { canonical: "/login" },
 };
 
