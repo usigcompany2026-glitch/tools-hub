@@ -81,6 +81,33 @@ Brenda`;
   });
 }
 
+export async function sendNewTrialSignupNotification(subscriber: {
+  fullName: string | null;
+  email: string;
+  role: string;
+  licenseNumber: string | null;
+  startedFromTool: string | null;
+}) {
+  const notify = process.env.NOTIFY_EMAIL;
+  if (!notify) return;
+
+  const text = `New 7-day free trial signup.
+
+Name: ${subscriber.fullName || "—"}
+Email: ${subscriber.email}
+Role: ${subscriber.role}
+License #: ${subscriber.licenseNumber || "—"}
+Started from: ${subscriber.startedFromTool || "Home / General"}`;
+
+  await resend.emails.send({
+    from: FROM,
+    to: notify,
+    replyTo: subscriber.email,
+    subject: "New trial signup — USIG Decision Tools",
+    text,
+  });
+}
+
 export async function sendLeadNotification(lead: {
   email: string;
   phone?: string | null;

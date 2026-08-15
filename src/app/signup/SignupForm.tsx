@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { PRODUCTS, isProductKey } from "@/lib/products";
+import { ROLE_LIST, roleConfig, isRole, type Role } from "@/lib/roles";
+import { completeSignup } from "./actions";
 
 export default function SignupForm() {
   const searchParams = useSearchParams();
@@ -12,11 +14,17 @@ export default function SignupForm() {
   const next = searchParams.get("next");
   const toolName = tool && isProductKey(tool) ? PRODUCTS[tool].name : null;
 
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [role, setRole] = useState<Role | "">("");
+  const [licenseNumber, setLicenseNumber] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "sent" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
+
+  const licenseField = role && isRole(role) ? roleConfig(role).licenseField : null;
+  const licenseLabel = role && isRole(role) ? roleConfig(role).licenseLabel : null;
 
   function destination() {
     if (next) return next;
@@ -47,29 +55,42 @@ export default function SignupForm() {
       setErrorMessage("Passwords don't match.");
       return;
     }
+    if (!role) {
+      setStatus("error");
+      setErrorMessage("Select what best describes you.");
+      return;
+    }
     setStatus("loading");
     setErrorMessage("");
     const supabase = createClient();
+    const meta = {
+      full_name: fullName || null,
+      role,
+      license_number: licenseNumber || null,
+      signup_tool: tool,
+    };
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: redirectTo("/auth/callback") },
+      options: { emailRedirectTo: redirectTo("/auth/callback"), data: meta },
     });
     if (error) {
       setStatus("error");
       setErrorMessage(
-        error.message.includes("already registered") || error.message.includes("already exists")
+        error.message.toLowerCase().includes("already registered") ||
+          error.message.toLowerCase().includes("already exists")
           ? "An account with that email already exists. Try signing in instead."
           : error.message
       );
       return;
     }
-    if (data.session) {
-      // Email confirmation is off — session is live immediately.
+    if (data.session && data.user) {
+      await completeSignup(data.user.id, email, meta);
       window.location.href = destination();
       return;
     }
-    // Email confirmation is required before a session exists.
+    // Email confirmation is required before a session exists — /auth/callback
+    // runs completeSignup once they confirm.
     setStatus("sent");
   }
 
@@ -85,7 +106,7 @@ export default function SignupForm() {
     <div className="mx-auto w-full max-w-sm">
       <h1 className="text-2xl font-semibold text-ink">Create your account</h1>
       <p className="mt-2 text-sm text-ink/70">
-        {toolName ? `Get started with ${toolName}.` : "Access all USIG Decision Tools, free to start."}
+        {toolName ? `Get started with ${toolName}.` : "7 days free on all three tools, no card required."}
       </p>
 
       {status === "sent" ? (
@@ -110,6 +131,13 @@ export default function SignupForm() {
 
           <form onSubmit={handleSignUp} className="space-y-3">
             <input
+              type="text"
+              placeholder="Full name"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className="w-full rounded border border-border px-4 py-2.5 text-sm focus:border-accent focus:outline-none"
+            />
+            <input
               type="email"
               required
               placeholder="you@company.com"
@@ -117,6 +145,30 @@ export default function SignupForm() {
               onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded border border-border px-4 py-2.5 text-sm focus:border-accent focus:outline-none"
             />
+            <select
+              required
+              value={role}
+              onChange={(e) => setRole(e.target.value as Role)}
+              className="w-full rounded border border-border bg-white px-4 py-2.5 text-sm text-ink focus:border-accent focus:outline-none"
+            >
+              <option value="" disabled>
+                What best describes you?
+              </option>
+              {ROLE_LIST.map((r) => (
+                <option key={r.key} value={r.key}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+            {licenseField && (
+              <input
+                type="text"
+                placeholder={licenseLabel ?? ""}
+                value={licenseNumber}
+                onChange={(e) => setLicenseNumber(e.target.value)}
+                className="w-full rounded border border-border px-4 py-2.5 text-sm focus:border-accent focus:outline-none"
+              />
+            )}
             <input
               type="password"
               required
