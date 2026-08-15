@@ -38,6 +38,14 @@ export default function LoginForm() {
     return `/login/forgot-password${qs ? `?${qs}` : ""}`;
   }
 
+  function signupHref() {
+    const params = new URLSearchParams();
+    if (tool) params.set("tool", tool);
+    if (next) params.set("next", next);
+    const qs = params.toString();
+    return `/signup${qs ? `?${qs}` : ""}`;
+  }
+
   function oauthRedirectTo() {
     const params = new URLSearchParams();
     if (tool) params.set("tool", tool);
@@ -127,9 +135,12 @@ export default function LoginForm() {
         {status === "error" && <p className="text-sm text-red-700">{errorMessage}</p>}
       </form>
 
-      <p className="mt-4 text-center text-sm">
+      <p className="mt-4 flex justify-center gap-4 text-center text-sm">
         <Link href={forgotPasswordHref()} className="text-ink/60 underline hover:text-accent">
           Forgot password?
+        </Link>
+        <Link href={signupHref()} className="text-ink/60 underline hover:text-accent">
+          Create an account
         </Link>
       </p>
 
