@@ -1,18 +1,12 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PRODUCTS, type ProductKey } from "@/lib/products";
+import { getEntitlements, type Entitlement } from "@/lib/entitlements";
 import PricingCard from "@/components/PricingCard";
 import AutoRenewalDisclosure from "@/components/AutoRenewalDisclosure";
 import TrialBanner, { TrialExpiredBanner } from "@/components/TrialBanner";
 import UpgradeButton from "@/components/UpgradeButton";
 import ManageSubscriptionButton from "@/components/ManageSubscriptionButton";
-
-type CanRunResult = {
-  allowed: boolean;
-  plan: "paid" | "trial" | "trial_expired" | "no_account";
-  trial_ends_at?: string | null;
-  reason?: string;
-};
 
 export default async function ToolPageContent({ productKey }: { productKey: ProductKey }) {
   const product = PRODUCTS[productKey];
@@ -21,14 +15,10 @@ export default async function ToolPageContent({ productKey }: { productKey: Prod
     data: { user },
   } = await supabase.auth.getUser();
 
-  let usage: CanRunResult | null = null;
+  let usage: Entitlement | null = null;
 
   if (user) {
-    const { data } = await supabase.rpc("can_run", {
-      p_user: user.id,
-      p_product: productKey,
-    });
-    usage = data;
+    usage = (await getEntitlements(user.id))[productKey];
   }
 
   return (

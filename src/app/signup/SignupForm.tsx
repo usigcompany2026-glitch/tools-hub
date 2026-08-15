@@ -20,7 +20,9 @@ export default function SignupForm() {
   const [confirm, setConfirm] = useState("");
   const [role, setRole] = useState<Role | "">("");
   const [licenseNumber, setLicenseNumber] = useState("");
-  const [status, setStatus] = useState<"idle" | "loading" | "sent" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [step, setStep] = useState<"form" | "code">("form");
+  const [code, setCode] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
   const licenseField = role && isRole(role) ? roleConfig(role).licenseField : null;
@@ -29,7 +31,9 @@ export default function SignupForm() {
   function destination() {
     if (next) return next;
     if (tool && isProductKey(tool)) return `/tools/${PRODUCTS[tool].slug}`;
-    return "/";
+    // Land on the account page, not the marketing home page — that's where a
+    // new user can actually see and open all three trials.
+    return "/account";
   }
 
   function loginHref() {
@@ -89,9 +93,56 @@ export default function SignupForm() {
       window.location.href = destination();
       return;
     }
-    // Email confirmation is required before a session exists — /auth/callback
-    // runs completeSignup once they confirm.
-    setStatus("sent");
+    // No session yet: the account needs confirming. Collect the emailed code
+    // here rather than relying on the link. A clickable confirmation link is
+    // single-use, and mail scanners/prefetchers routinely open it before the
+    // person does — which is what produced the "link is invalid" message on a
+    // signup that had in fact already succeeded.
+    setStatus("idle");
+    setStep("code");
+  }
+
+  async function handleVerifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    setStatus("loading");
+    setErrorMessage("");
+    const supabase = createClient();
+    const meta = {
+      full_name: fullName || null,
+      role: role || null,
+      license_number: licenseNumber || null,
+      signup_tool: tool,
+    };
+
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token: code,
+      type: "signup",
+    });
+
+    let user = data?.user ?? null;
+
+    if (error) {
+      // If something already consumed the confirmation (a prefetcher opening
+      // the link), the account is confirmed and the code is spent. The
+      // credentials they just chose are still valid, so sign in with those
+      // instead of dead-ending on an error they can't act on.
+      const { data: signIn, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (signInError || !signIn.user) {
+        setStatus("error");
+        setErrorMessage(error.message);
+        return;
+      }
+      user = signIn.user;
+    }
+
+    if (user) {
+      await completeSignup(user.id, email, meta);
+    }
+    window.location.href = destination();
   }
 
   async function handleGoogle() {
@@ -109,10 +160,32 @@ export default function SignupForm() {
         {toolName ? `Get started with ${toolName}.` : "7 days free on all three tools, no card required."}
       </p>
 
-      {status === "sent" ? (
-        <div className="mt-8 rounded border border-border bg-white p-4 text-sm text-ink">
-          Check your email to confirm your account before signing in.
-        </div>
+      {step === "code" ? (
+        <form onSubmit={handleVerifyCode} className="mt-8 space-y-3">
+          <p className="text-sm text-ink/70">
+            We sent a confirmation code to {email}. Enter it below to finish setting up your
+            account.
+          </p>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]*"
+            required
+            placeholder="Code from email"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            className="w-full rounded border border-border px-4 py-2.5 text-center text-lg tracking-[0.4em] focus:border-accent focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={status === "loading" || code.length === 0}
+            className="w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-light disabled:opacity-60"
+          >
+            {status === "loading" ? "Confirming…" : "Confirm account"}
+          </button>
+          {status === "error" && <p className="text-sm text-red-700">{errorMessage}</p>}
+        </form>
       ) : (
         <>
           <button
