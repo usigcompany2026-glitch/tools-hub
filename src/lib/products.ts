@@ -5,9 +5,6 @@ export interface ProductConfig {
   key: ProductKey;
   slug: string;
   name: string;
-  unit: string; // plural: "analyses" | "underwrites" | "scenarios"
-  unitSingular: string; // "analysis" | "underwrite" | "scenario"
-  freeLimit: number;
   monthlyPrice: number;
   annualPrice: number;
   toolUrl: string;
@@ -20,9 +17,6 @@ export const PRODUCTS: Record<ProductKey, ProductConfig> = {
     key: "residential",
     slug: "residential",
     name: "USIG Residential Analysis",
-    unit: "analyses",
-    unitSingular: "analysis",
-    freeLimit: 3,
     monthlyPrice: 29.99,
     annualPrice: 299,
     toolUrl: "https://deals-desk.usig.ai",
@@ -37,9 +31,6 @@ export const PRODUCTS: Record<ProductKey, ProductConfig> = {
     key: "commercial",
     slug: "commercial",
     name: "USIG Commercial Analysis",
-    unit: "underwrites",
-    unitSingular: "underwrite",
-    freeLimit: 1,
     monthlyPrice: 99,
     annualPrice: 990,
     toolUrl: "https://cre-analysis.usig.ai",
@@ -53,9 +44,6 @@ export const PRODUCTS: Record<ProductKey, ProductConfig> = {
     key: "financing",
     slug: "financing",
     name: "USIG Financing Analysis",
-    unit: "scenarios",
-    unitSingular: "scenario",
-    freeLimit: 5,
     monthlyPrice: 49,
     annualPrice: 490,
     // Domain kept as-is (mortgage.usig.ai) — display name changed, address didn't.
@@ -96,14 +84,8 @@ export function priceIdFor(product: ProductKey, interval: Interval): string {
   return priceId;
 }
 
-export function unitLabel(product: ProductKey, count: number): string {
-  const cfg = PRODUCTS[product];
-  return count === 1 ? cfg.unitSingular : cfg.unit;
-}
-
-export function freeLine(product: ProductKey): string {
-  const cfg = PRODUCTS[product];
-  return `Free: ${cfg.freeLimit} ${unitLabel(product, cfg.freeLimit)} per month. Paid: unlimited.`;
+export function freeLine(): string {
+  return "Free for 7 days. No credit card required.";
 }
 
 export function displayPrice(product: ProductKey, interval: Interval): string {

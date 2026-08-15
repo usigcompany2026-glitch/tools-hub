@@ -17,6 +17,12 @@ interface SubRow {
   plan: "free" | "paid";
   status: string;
   current_period_end: string | null;
+  trial_ends_at: string | null;
+}
+
+function daysLeft(trialEndsAt: string): number {
+  const ms = new Date(trialEndsAt).getTime() - Date.now();
+  return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
 }
 
 export default async function AccountPage() {
@@ -31,20 +37,8 @@ export default async function AccountPage() {
 
   const { data: subs } = await supabase
     .from("subscriptions")
-    .select("product, plan, status, current_period_end")
+    .select("product, plan, status, current_period_end, trial_ends_at")
     .eq("user_id", user.id);
-
-  const usageByProduct: Record<string, { used: number; limit: number }> = {};
-  for (const product of PRODUCT_LIST) {
-    const sub = subs?.find((s) => s.product === product.key);
-    if (sub?.plan === "free") {
-      const { data } = await supabase.rpc("can_run", {
-        p_user: user.id,
-        p_product: product.key,
-      });
-      usageByProduct[product.key] = { used: data?.used ?? 0, limit: data?.limit ?? product.freeLimit };
-    }
-  }
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-16 sm:px-6">
@@ -60,7 +54,9 @@ export default async function AccountPage() {
         {PRODUCT_LIST.map((product) => {
           const sub = subs?.find((s) => s.product === product.key) as SubRow | undefined;
           const plan = sub?.plan ?? "free";
-          const usage = usageByProduct[product.key];
+          const trialRemaining = sub?.trial_ends_at ? daysLeft(sub.trial_ends_at) : null;
+          const trialActive = plan === "free" && trialRemaining !== null && trialRemaining > 0;
+          const trialExpired = plan === "free" && trialRemaining !== null && trialRemaining === 0;
 
           return (
             <div
@@ -75,13 +71,17 @@ export default async function AccountPage() {
                       plan === "paid" ? "bg-accent/10 text-accent" : "bg-ink/5 text-ink/60"
                     }`}
                   >
-                    {plan === "paid" ? "Paid" : "Free"}
+                    {plan === "paid" ? "Paid" : trialExpired ? "Trial ended" : "Free trial"}
                   </span>
                 </div>
-                {plan === "free" && usage && (
+                {trialActive && (
                   <p className="mt-1 text-sm text-ink/60">
-                    {usage.used} of {usage.limit} used this month
+                    {trialRemaining === 1 ? "1 day" : `${trialRemaining} days`} left in your free
+                    trial
                   </p>
+                )}
+                {trialExpired && (
+                  <p className="mt-1 text-sm text-ink/60">Your free trial has ended</p>
                 )}
                 {plan === "paid" && sub?.current_period_end && (
                   <p className="mt-1 text-sm text-ink/60">

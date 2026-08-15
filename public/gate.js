@@ -40,8 +40,7 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
     user: null,
     profile: null,
     plan: null,
-    used: 0,
-    limit: 0,
+    trialEndsAt: null,
     product: PRODUCT,
     hub: HUB,
   };
@@ -55,23 +54,16 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
     if (p === "financing") return "USIG Financing Analysis";
     return p;
   }
-  function productUnit(p, count) {
-    var singular = count === 1;
-    if (p === "residential") return singular ? "analysis" : "analyses";
-    if (p === "commercial") return singular ? "underwrite" : "underwrites";
-    if (p === "financing") return singular ? "scenario" : "scenarios";
-    return singular ? "run" : "runs";
-  }
   function productPrice(p) {
     if (p === "residential") return "$29.99";
     if (p === "commercial") return "$99";
     if (p === "financing") return "$49";
     return "";
   }
-  function nextResetDate() {
-    var now = new Date();
-    var first = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    return first.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  function daysLeft(trialEndsAt) {
+    if (!trialEndsAt) return 0;
+    var ms = new Date(trialEndsAt).getTime() - Date.now();
+    return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
   }
 
   function redirectToLogin() {
@@ -80,11 +72,18 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
   }
 
   function showToolUI() {
+    // Two supported integration patterns:
+    // 1. Host page wraps its content in <div id="usig-tool"> (hidden by default) —
+    //    used when the host wants fine-grained control over what's gated.
+    // 2. Host page just hides <body> via a `<style>body{visibility:hidden}</style>`
+    //    tag in <head> (no DOM restructuring needed) — simplest for existing
+    //    single-file tools. gate.js clears it here once access is confirmed.
     var el = document.getElementById("usig-tool");
     if (el) el.style.display = "block";
+    document.body.style.visibility = "visible";
   }
 
-  function renderUsageBanner(used, limit) {
+  function renderTrialBanner(trialEndsAt) {
     var el = document.getElementById("usig-usage-banner");
     if (!el) {
       el = document.createElement("div");
@@ -98,20 +97,24 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
       var parent = toolEl ? toolEl.parentNode : document.body;
       parent.insertBefore(el, toolEl || parent.firstChild);
     }
+    var remaining = daysLeft(trialEndsAt);
+    var dayLabel = remaining === 1 ? "1 day" : remaining + " days";
     el.innerHTML =
-      "<strong>Free plan — " +
-      used +
-      " of " +
-      limit +
-      " used this month.</strong> " +
+      "<strong>Free trial — " +
+      dayLabel +
+      " left.</strong> No credit card on file. " +
       '<a href="' +
       HUB +
       "/tools/" +
       productSlug(PRODUCT) +
-      '#pricing" style="color:#0b3d2e;text-decoration:underline;">Upgrade for unlimited</a>';
+      '#pricing" style="color:#0b3d2e;text-decoration:underline;">Upgrade anytime</a>';
   }
 
-  function showUpgradeModal(product, data) {
+  // dismissible=false is used at init time for a fully-expired trial, where
+  // there's no tool UI underneath worth returning to (body may still be
+  // hidden via the visibility:hidden pattern) — so no "maybe later" escape.
+  function showUpgradeModal(product, data, dismissible) {
+    if (dismissible === undefined) dismissible = true;
     var existing = document.getElementById("usig-upgrade-modal");
     if (existing) existing.remove();
 
@@ -119,47 +122,43 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
     overlay.id = "usig-upgrade-modal";
     overlay.setAttribute(
       "style",
-      "position:fixed;inset:0;background:rgba(18,24,31,0.5);display:flex;" +
+      "visibility:visible;position:fixed;inset:0;background:rgba(18,24,31,0.5);display:flex;" +
         "align-items:center;justify-content:center;z-index:99999;font-family:-apple-system,Segoe UI,Roboto,sans-serif;"
     );
 
     var card = document.createElement("div");
     card.setAttribute(
       "style",
-      "background:#fff;max-width:420px;width:calc(100% - 32px);border-radius:8px;padding:28px;text-align:center;"
+      "visibility:visible;background:#fff;max-width:420px;width:calc(100% - 32px);border-radius:8px;padding:28px;text-align:center;"
     );
 
-    var limit = data.limit || 0;
     card.innerHTML =
-      '<h3 style="margin:0 0 12px;font-size:18px;color:#12181f;">You&#39;ve used your ' +
-      limit +
-      " free " +
-      productUnit(product, limit) +
-      ' this month</h3><p style="margin:0 0 4px;font-size:14px;color:#3a4149;">Upgrade to ' +
+      '<h3 style="margin:0 0 12px;font-size:18px;color:#12181f;">Your 7-day free trial has ended</h3>' +
+      '<p style="margin:0 0 20px;font-size:14px;color:#3a4149;">Upgrade to ' +
       productDisplayName(product) +
       " for unlimited access — " +
       productPrice(product) +
-      '/month, cancel anytime.</p><p style="margin:0 0 20px;font-size:13px;color:#6b7280;">Your free ' +
-      productUnit(product, limit) +
-      " reset on " +
-      nextResetDate() +
-      '.</p><a href="' +
+      '/month, cancel anytime.</p><a href="' +
       HUB +
       "/tools/" +
       productSlug(product) +
       '#pricing" style="display:inline-block;background:#0b3d2e;color:#fff;padding:10px 20px;' +
       'border-radius:6px;text-decoration:none;font-size:14px;font-weight:600;">Upgrade now</a>' +
-      '<div style="margin-top:14px;"><button id="usig-modal-dismiss" style="background:none;border:none;' +
-      'color:#6b7280;font-size:13px;text-decoration:underline;cursor:pointer;">Maybe later</button></div>';
+      (dismissible
+        ? '<div style="margin-top:14px;"><button id="usig-modal-dismiss" style="background:none;border:none;' +
+          'color:#6b7280;font-size:13px;text-decoration:underline;cursor:pointer;">Maybe later</button></div>'
+        : "");
 
     overlay.appendChild(card);
     document.body.appendChild(overlay);
-    document.getElementById("usig-modal-dismiss").onclick = function () {
-      overlay.remove();
-    };
-    overlay.addEventListener("click", function (e) {
-      if (e.target === overlay) overlay.remove();
-    });
+    if (dismissible) {
+      document.getElementById("usig-modal-dismiss").onclick = function () {
+        overlay.remove();
+      };
+      overlay.addEventListener("click", function (e) {
+        if (e.target === overlay) overlay.remove();
+      });
+    }
   }
 
   async function init() {
@@ -175,7 +174,7 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
 
     var { data: profile } = await sb
       .from("profiles")
-      .select("full_name, display_name, company, nmls_id, dre_license")
+      .select("full_name, display_name, company, phone, nmls_id, dre_license, sphere_url, lead_notify_email")
       .eq("id", session.user.id)
       .maybeSingle();
     window.USIG.profile = profile || null;
@@ -191,11 +190,25 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
     }
 
     window.USIG.plan = data.plan;
-    window.USIG.used = data.used || 0;
-    window.USIG.limit = data.limit || 0;
+    window.USIG.trialEndsAt = data.trial_ends_at || null;
+    // Authenticated client, same session gate.js established — lets host
+    // pages make their own queries (e.g. saving deal records) without
+    // re-authenticating. Table access is enforced by RLS server-side.
+    window.USIG.supabase = sb;
 
-    if (data.plan === "free") renderUsageBanner(data.used || 0, data.limit || 0);
+    if (!data.allowed) {
+      // Trial expired (or no account row) and there's no per-action hook to
+      // catch this later in these reactive, no-single-button tools — so the
+      // block has to happen here, at init, before the tool is ever revealed.
+      showUpgradeModal(PRODUCT, data, false);
+      return;
+    }
+
+    if (data.plan === "trial") renderTrialBanner(data.trial_ends_at);
     showToolUI();
+    // Lets host pages read window.USIG.user/profile/plan once they're
+    // actually populated, instead of guessing when init()'s async work is done.
+    window.dispatchEvent(new CustomEvent("usig:ready"));
   }
 
   // Host page MUST call this before running an analysis, and abort if it

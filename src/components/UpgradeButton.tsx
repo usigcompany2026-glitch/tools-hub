@@ -44,7 +44,7 @@ export default function UpgradeButton({
           type="button"
           onClick={() => setInterval("monthly")}
           className={`rounded-full border px-3 py-1 ${
-            interval === "monthly" ? "border-accent bg-accent text-white" : "border-border text-ink/60"
+            interval === "monthly" ? "border-navy bg-navy text-white" : "border-border text-ink/60"
           }`}
         >
           Monthly · {displayPrice(product, "monthly")}
@@ -53,7 +53,7 @@ export default function UpgradeButton({
           type="button"
           onClick={() => setInterval("annual")}
           className={`rounded-full border px-3 py-1 ${
-            interval === "annual" ? "border-accent bg-accent text-white" : "border-border text-ink/60"
+            interval === "annual" ? "border-navy bg-navy text-white" : "border-border text-ink/60"
           }`}
         >
           Annual · {displayPrice(product, "annual")}
@@ -65,7 +65,7 @@ export default function UpgradeButton({
         disabled={loading}
         className={
           className ||
-          "w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-light disabled:opacity-60"
+          "w-full rounded-md bg-gold px-4 py-2.5 text-sm font-bold text-navy-deep hover:bg-gold-light disabled:opacity-60"
         }
       >
         {loading ? "Redirecting…" : label}

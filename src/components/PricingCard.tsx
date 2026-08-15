@@ -13,14 +13,9 @@ export default function PricingCard({
     <div className="flex h-full flex-col rounded-lg border border-border bg-white p-6">
       <h3 className="text-lg font-semibold text-ink">{product.name}</h3>
       <div className="mt-3">
-        <span className="text-3xl font-semibold text-ink">
-          ${product.monthlyPrice % 1 === 0 ? product.monthlyPrice : product.monthlyPrice.toFixed(2)}
-        </span>
-        <span className="text-sm text-ink/60">/month</span>
+        <span className="text-2xl font-semibold text-accent">Free for 7 days</span>
       </div>
-      <p className="mt-1 text-sm text-ink/60">
-        or ${product.annualPrice % 1 === 0 ? product.annualPrice : product.annualPrice.toFixed(2)}/year
-      </p>
+      <p className="mt-1 text-sm text-ink/60">No credit card required.</p>
 
       <ul className="mt-6 flex-1 space-y-3 text-sm text-ink/80">
         {product.features.map((feature, i) => (
@@ -37,7 +32,7 @@ export default function PricingCard({
           <span aria-hidden className="text-accent">
             —
           </span>
-          <span>{freeLine(product.key)}</span>
+          <span>{freeLine()}</span>
         </li>
       </ul>
 

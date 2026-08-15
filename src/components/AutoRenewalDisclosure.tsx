@@ -8,10 +8,10 @@ export default function AutoRenewalDisclosure({
   return (
     <div className="space-y-3 text-sm text-ink/70">
       <p>
-        <strong className="text-ink">Start free, no credit card.</strong> Every tool has a free
-        tier that never expires. Upgrade when you need more. Paid subscriptions renew
-        automatically until you cancel — one click from your account, no phone call, no email, no
-        questions.
+        <strong className="text-ink">Start free, no credit card.</strong> Every tool includes a
+        full 7-day free trial. Upgrade anytime during or after your trial. Paid subscriptions
+        renew automatically until you cancel — one click from your account, no phone call, no
+        email, no questions.
       </p>
       {showContactLine && (
         <p>
