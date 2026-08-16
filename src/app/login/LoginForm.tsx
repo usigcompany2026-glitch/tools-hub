@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { PRODUCTS, isProductKey } from "@/lib/products";
+import { signIn } from "./actions";
 
 const CALLBACK_ERROR_MESSAGES: Record<string, string> = {
   missing_code: "That link is missing information. Please sign in again.",
@@ -58,19 +59,11 @@ export default function LoginForm() {
     e.preventDefault();
     setStatus("loading");
     setErrorMessage("");
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
+    const result = await signIn({ email, password, destination: destination() });
+    if (result?.error) {
       setStatus("error");
-      setErrorMessage(
-        error.message === "Invalid login credentials"
-          ? "Invalid email or password."
-          : error.message
-      );
-      return;
+      setErrorMessage(result.error);
     }
-    // Full navigation so the server-rendered header picks up the new session.
-    window.location.href = destination();
   }
 
   async function handleGoogle() {
