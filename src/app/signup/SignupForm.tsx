@@ -114,11 +114,26 @@ export default function SignupForm() {
       signup_tool: tool,
     };
 
-    const { data, error } = await supabase.auth.verifyOtp({
+    // 'email' is what the Supabase JS reference specifies for "Verify Signup
+    // One-Time Password". Note that EmailOtpType is `... | (string & {})`, so
+    // TypeScript accepts any string here and the compiler cannot catch a wrong
+    // value — this has to be right by reading the docs, not by building.
+    let { data, error } = await supabase.auth.verifyOtp({
       email,
       token: code,
-      type: "signup",
+      type: "email",
     });
+
+    if (error) {
+      // 'signup' is the older type for a confirm-signup token and is still in
+      // the union. Retrying under it covers the case where this project's
+      // GoTrue wants that value, which we cannot probe from here.
+      ({ data, error } = await supabase.auth.verifyOtp({
+        email,
+        token: code,
+        type: "signup",
+      }));
+    }
 
     let user = data?.user ?? null;
 
