@@ -104,7 +104,7 @@ export default function ForgotPasswordForm() {
         <>
           <h1 className="text-2xl font-semibold text-ink">Enter your code</h1>
           <p className="mt-2 text-sm text-ink/70">
-            Check your email for a 6-digit code and enter it below. Sent to {email}.
+            Check your email for a code and enter it below. Sent to {email}.
           </p>
           <form onSubmit={handleVerifyCode} className="mt-8 space-y-3">
             <input
@@ -112,16 +112,15 @@ export default function ForgotPasswordForm() {
               inputMode="numeric"
               autoComplete="one-time-code"
               pattern="[0-9]*"
-              maxLength={6}
               required
-              placeholder="123456"
+              placeholder="Code from email"
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
               className="w-full rounded border border-border px-4 py-2.5 text-center text-lg tracking-[0.4em] focus:border-accent focus:outline-none"
             />
             <button
               type="submit"
-              disabled={status === "loading" || code.length !== 6}
+              disabled={status === "loading" || code.length === 0}
               className="w-full rounded bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-light disabled:opacity-60"
             >
               {status === "loading" ? "Verifying…" : "Verify code"}

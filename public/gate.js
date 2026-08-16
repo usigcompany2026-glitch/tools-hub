@@ -6,11 +6,21 @@
 //   <script type="module" src="https://tools.usig.ai/gate.js"></script>
 // See INSTALL.md for the full integration contract.
 //
-// Uses @supabase/ssr's createBrowserClient (not the plain supabase-js
-// client) so the auth cookie is written in exactly the same format the
-// hub's Next.js app reads/writes, with domain=".usig.ai" — that's what
-// lets a session started on tools.usig.ai carry over here.
-import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@0.5.2/+esm";
+// Storage note, because this was got wrong three times:
+//
+// This used @supabase/ssr's createBrowserClient, which persists the session
+// ONLY in a cookie scoped to ".usig.ai". The theory was that a cookie shared
+// across subdomains would carry the hub's session over here. On iOS it does
+// not — a home-screen PWA has its own cookie jar, and cookie blocking has
+// the same effect — so the session written here vanished immediately and
+// every load bounced to login.
+//
+// The hub now hands the session over explicitly in the URL fragment (see
+// adoptHandoffFromUrl below), so this origin no longer needs storage that
+// crosses subdomains. It just needs storage that works. localStorage is
+// origin-scoped and unaffected by cookie policy, partitioning or ITP, which
+// makes it the right choice now that sharing is handled elsewhere.
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.9/+esm";
 
 (function () {
   var PRODUCT = window.USIG_PRODUCT;
@@ -25,14 +35,14 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
     return;
   }
 
-  var cookieDomain = /(^|\.)usig\.ai$/.test(location.hostname) ? ".usig.ai" : undefined;
-
-  var sb = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    cookieOptions: {
-      domain: cookieDomain,
-      path: "/",
-      sameSite: "lax",
-      secure: location.protocol === "https:",
+  var sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      // We read the hub's handoff out of the fragment ourselves, using our
+      // own parameter names. Leaving this on would have supabase-js race us
+      // for the hash and rewrite it.
+      detectSessionInUrl: false,
     },
   });
 
@@ -69,6 +79,79 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
   function redirectToLogin() {
     var next = encodeURIComponent(location.href);
     location.href = HUB + "/login?tool=" + encodeURIComponent(PRODUCT) + "&next=" + next;
+  }
+
+  // Go through the hub's handoff rather than straight to login. If the hub
+  // already has a session it comes straight back with one in the fragment;
+  // if not, the hub sends the user to login and then back through here, so
+  // either way we return holding a session rather than landing on a page
+  // that cannot see one.
+  function goToHandoff() {
+    location.href = HUB + "/api/auth/handoff?tool=" + encodeURIComponent(PRODUCT);
+  }
+
+  // Sending the user back to a login they already completed is the one
+  // outcome worth avoiding here. If we bounce once and land back with still
+  // no session, the cookie is not reaching this subdomain and looping will
+  // not fix it — say so instead of ping-ponging.
+  var RETRY_FLAG = "usig_gate_retried";
+
+  function bounceOnce() {
+    try {
+      if (sessionStorage.getItem(RETRY_FLAG)) {
+        sessionStorage.removeItem(RETRY_FLAG);
+        showSessionStuckMessage();
+        return;
+      }
+      sessionStorage.setItem(RETRY_FLAG, "1");
+    } catch (e) {
+      // Safari private mode can throw on sessionStorage; a redirect is still
+      // the best available move.
+    }
+    goToHandoff();
+  }
+
+  function showSessionStuckMessage() {
+    document.body.style.visibility = "visible";
+    var box = document.createElement("div");
+    box.setAttribute(
+      "style",
+      "font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;max-width:460px;margin:64px auto;" +
+        "background:#fff;border:1px solid #e2e0da;border-radius:8px;padding:24px;color:#12181f;"
+    );
+    box.innerHTML =
+      '<h3 style="margin:0 0 10px;font-size:17px;">We could not carry your sign-in over</h3>' +
+      '<p style="margin:0 0 16px;color:#3a4149;">Your sign-in did not reach this page. Opening ' +
+      "the tool from your account page is the most reliable route.</p>" +
+      '<a href="' +
+      HUB +
+      '/account" style="display:inline-block;background:#0b3d2e;color:#fff;padding:10px 18px;' +
+      'border-radius:6px;text-decoration:none;font-weight:600;">Back to your account</a>';
+    document.body.appendChild(box);
+  }
+
+  // The cookie is the fast path. When it is missing — some browsers refuse to
+  // share it across *.usig.ai even though the hub holds a valid session — ask
+  // the hub directly rather than assuming the user is signed out. The request
+  // carries the hub's own cookie, so it only ever returns a session the
+  // browser already had.
+  async function trySessionHandoff() {
+    try {
+      var res = await fetch(HUB + "/api/auth/session", {
+        credentials: "include",
+        headers: { accept: "application/json" },
+      });
+      if (!res.ok) return false;
+      var body = await res.json();
+      if (!body || !body.access_token || !body.refresh_token) return false;
+      var { error } = await sb.auth.setSession({
+        access_token: body.access_token,
+        refresh_token: body.refresh_token,
+      });
+      return !error;
+    } catch (e) {
+      return false;
+    }
   }
 
   function showToolUI() {
@@ -161,14 +244,66 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
     }
   }
 
+  // The hub can hand the session over in the URL fragment (see
+  // /api/auth/handoff). This is the only path that works when the browser
+  // keeps the hub's cookies in a separate jar from this site — an iOS
+  // home-screen PWA, or cookie blocking — because it never needs to read a
+  // cookie this origin was never given.
+  async function adoptHandoffFromUrl() {
+    if (!location.hash || location.hash.indexOf("usig_at=") === -1) return false;
+    var params = new URLSearchParams(location.hash.replace(/^#/, ""));
+    var at = params.get("usig_at");
+    var rt = params.get("usig_rt");
+    if (!at || !rt) return false;
+
+    var ok = false;
+    try {
+      var { error } = await sb.auth.setSession({ access_token: at, refresh_token: rt });
+      ok = !error;
+    } catch (e) {
+      ok = false;
+    }
+
+    // Clear the tokens out of the address bar either way, so a reload or a
+    // shared link never replays them. replaceState keeps this out of history.
+    params.delete("usig_at");
+    params.delete("usig_rt");
+    var rest = params.toString();
+    try {
+      history.replaceState(null, "", location.pathname + location.search + (rest ? "#" + rest : ""));
+    } catch (e) {
+      /* non-fatal */
+    }
+    return ok;
+  }
+
   async function init() {
+    await adoptHandoffFromUrl();
+
     var {
       data: { session },
     } = await sb.auth.getSession();
 
     if (!session) {
-      redirectToLogin();
-      return;
+      var recovered = await trySessionHandoff();
+      if (!recovered) {
+        bounceOnce();
+        return;
+      }
+      ({
+        data: { session },
+      } = await sb.auth.getSession());
+      if (!session) {
+        bounceOnce();
+        return;
+      }
+    }
+
+    // Got here with a session, so any earlier bounce is resolved.
+    try {
+      sessionStorage.removeItem(RETRY_FLAG);
+    } catch (e) {
+      /* non-fatal */
     }
     window.USIG.user = session.user;
 
