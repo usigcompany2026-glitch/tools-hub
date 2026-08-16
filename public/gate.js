@@ -71,6 +71,72 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
     location.href = HUB + "/login?tool=" + encodeURIComponent(PRODUCT) + "&next=" + next;
   }
 
+  // Sending the user back to a login they already completed is the one
+  // outcome worth avoiding here. If we bounce once and land back with still
+  // no session, the cookie is not reaching this subdomain and looping will
+  // not fix it — say so instead of ping-ponging.
+  var RETRY_FLAG = "usig_gate_retried";
+
+  function bounceOnce() {
+    try {
+      if (sessionStorage.getItem(RETRY_FLAG)) {
+        sessionStorage.removeItem(RETRY_FLAG);
+        showSessionStuckMessage();
+        return;
+      }
+      sessionStorage.setItem(RETRY_FLAG, "1");
+    } catch (e) {
+      // Safari private mode can throw on sessionStorage; a redirect is still
+      // the best available move.
+    }
+    redirectToLogin();
+  }
+
+  function showSessionStuckMessage() {
+    document.body.style.visibility = "visible";
+    var box = document.createElement("div");
+    box.setAttribute(
+      "style",
+      "font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;max-width:460px;margin:64px auto;" +
+        "background:#fff;border:1px solid #e2e0da;border-radius:8px;padding:24px;color:#12181f;"
+    );
+    box.innerHTML =
+      '<h3 style="margin:0 0 10px;font-size:17px;">We could not carry your sign-in over</h3>' +
+      '<p style="margin:0 0 16px;color:#3a4149;">You are signed in, but this browser is not sharing ' +
+      "that session with this page. This is usually a blocked-cookie setting.</p>" +
+      '<p style="margin:0 0 16px;color:#3a4149;">On iPhone: Settings → Apps → Safari → turn off ' +
+      "<strong>Block All Cookies</strong>, then reload.</p>" +
+      '<a href="' +
+      HUB +
+      '/account" style="display:inline-block;background:#0b3d2e;color:#fff;padding:10px 18px;' +
+      'border-radius:6px;text-decoration:none;font-weight:600;">Back to your account</a>';
+    document.body.appendChild(box);
+  }
+
+  // The cookie is the fast path. When it is missing — some browsers refuse to
+  // share it across *.usig.ai even though the hub holds a valid session — ask
+  // the hub directly rather than assuming the user is signed out. The request
+  // carries the hub's own cookie, so it only ever returns a session the
+  // browser already had.
+  async function trySessionHandoff() {
+    try {
+      var res = await fetch(HUB + "/api/auth/session", {
+        credentials: "include",
+        headers: { accept: "application/json" },
+      });
+      if (!res.ok) return false;
+      var body = await res.json();
+      if (!body || !body.access_token || !body.refresh_token) return false;
+      var { error } = await sb.auth.setSession({
+        access_token: body.access_token,
+        refresh_token: body.refresh_token,
+      });
+      return !error;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function showToolUI() {
     // Two supported integration patterns:
     // 1. Host page wraps its content in <div id="usig-tool"> (hidden by default) —
@@ -167,8 +233,25 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
     } = await sb.auth.getSession();
 
     if (!session) {
-      redirectToLogin();
-      return;
+      var recovered = await trySessionHandoff();
+      if (!recovered) {
+        bounceOnce();
+        return;
+      }
+      ({
+        data: { session },
+      } = await sb.auth.getSession());
+      if (!session) {
+        bounceOnce();
+        return;
+      }
+    }
+
+    // Got here with a session, so any earlier bounce is resolved.
+    try {
+      sessionStorage.removeItem(RETRY_FLAG);
+    } catch (e) {
+      /* non-fatal */
     }
     window.USIG.user = session.user;
 
