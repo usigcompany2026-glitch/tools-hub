@@ -227,7 +227,42 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
     }
   }
 
+  // The hub can hand the session over in the URL fragment (see
+  // /api/auth/handoff). This is the only path that works when the browser
+  // keeps the hub's cookies in a separate jar from this site — an iOS
+  // home-screen PWA, or cookie blocking — because it never needs to read a
+  // cookie this origin was never given.
+  async function adoptHandoffFromUrl() {
+    if (!location.hash || location.hash.indexOf("usig_at=") === -1) return false;
+    var params = new URLSearchParams(location.hash.replace(/^#/, ""));
+    var at = params.get("usig_at");
+    var rt = params.get("usig_rt");
+    if (!at || !rt) return false;
+
+    var ok = false;
+    try {
+      var { error } = await sb.auth.setSession({ access_token: at, refresh_token: rt });
+      ok = !error;
+    } catch (e) {
+      ok = false;
+    }
+
+    // Clear the tokens out of the address bar either way, so a reload or a
+    // shared link never replays them. replaceState keeps this out of history.
+    params.delete("usig_at");
+    params.delete("usig_rt");
+    var rest = params.toString();
+    try {
+      history.replaceState(null, "", location.pathname + location.search + (rest ? "#" + rest : ""));
+    } catch (e) {
+      /* non-fatal */
+    }
+    return ok;
+  }
+
   async function init() {
+    await adoptHandoffFromUrl();
+
     var {
       data: { session },
     } = await sb.auth.getSession();

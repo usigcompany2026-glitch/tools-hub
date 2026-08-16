@@ -101,7 +101,7 @@ export default async function AccountPage() {
                     previously it only offered Upgrade, with no way in. */}
                 {entitlement.allowed && (
                   <a
-                    href={product.toolUrl}
+                    href={`/api/auth/handoff?tool=${product.key}`}
                     className="rounded-md bg-gold px-4 py-2.5 text-sm font-bold text-navy-deep hover:bg-gold-light"
                   >
                     Open

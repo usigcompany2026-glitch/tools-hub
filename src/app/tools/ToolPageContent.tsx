@@ -39,7 +39,7 @@ export default async function ToolPageContent({ productKey }: { productKey: Prod
           <div className="flex flex-wrap gap-3">
             {usage.allowed && (
               <a
-                href={product.toolUrl}
+                href={`/api/auth/handoff?tool=${product.key}`}
                 className="rounded-md bg-gold px-5 py-2.5 text-sm font-bold text-navy-deep hover:bg-gold-light"
               >
                 Launch {product.name}
