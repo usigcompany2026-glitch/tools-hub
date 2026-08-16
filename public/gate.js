@@ -6,11 +6,21 @@
 //   <script type="module" src="https://tools.usig.ai/gate.js"></script>
 // See INSTALL.md for the full integration contract.
 //
-// Uses @supabase/ssr's createBrowserClient (not the plain supabase-js
-// client) so the auth cookie is written in exactly the same format the
-// hub's Next.js app reads/writes, with domain=".usig.ai" — that's what
-// lets a session started on tools.usig.ai carry over here.
-import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@0.5.2/+esm";
+// Storage note, because this was got wrong three times:
+//
+// This used @supabase/ssr's createBrowserClient, which persists the session
+// ONLY in a cookie scoped to ".usig.ai". The theory was that a cookie shared
+// across subdomains would carry the hub's session over here. On iOS it does
+// not — a home-screen PWA has its own cookie jar, and cookie blocking has
+// the same effect — so the session written here vanished immediately and
+// every load bounced to login.
+//
+// The hub now hands the session over explicitly in the URL fragment (see
+// adoptHandoffFromUrl below), so this origin no longer needs storage that
+// crosses subdomains. It just needs storage that works. localStorage is
+// origin-scoped and unaffected by cookie policy, partitioning or ITP, which
+// makes it the right choice now that sharing is handled elsewhere.
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.9/+esm";
 
 (function () {
   var PRODUCT = window.USIG_PRODUCT;
@@ -25,14 +35,14 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
     return;
   }
 
-  var cookieDomain = /(^|\.)usig\.ai$/.test(location.hostname) ? ".usig.ai" : undefined;
-
-  var sb = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    cookieOptions: {
-      domain: cookieDomain,
-      path: "/",
-      sameSite: "lax",
-      secure: location.protocol === "https:",
+  var sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      // We read the hub's handoff out of the fragment ourselves, using our
+      // own parameter names. Leaving this on would have supabase-js race us
+      // for the hash and rewrite it.
+      detectSessionInUrl: false,
     },
   });
 
@@ -71,6 +81,15 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
     location.href = HUB + "/login?tool=" + encodeURIComponent(PRODUCT) + "&next=" + next;
   }
 
+  // Go through the hub's handoff rather than straight to login. If the hub
+  // already has a session it comes straight back with one in the fragment;
+  // if not, the hub sends the user to login and then back through here, so
+  // either way we return holding a session rather than landing on a page
+  // that cannot see one.
+  function goToHandoff() {
+    location.href = HUB + "/api/auth/handoff?tool=" + encodeURIComponent(PRODUCT);
+  }
+
   // Sending the user back to a login they already completed is the one
   // outcome worth avoiding here. If we bounce once and land back with still
   // no session, the cookie is not reaching this subdomain and looping will
@@ -89,7 +108,7 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
       // Safari private mode can throw on sessionStorage; a redirect is still
       // the best available move.
     }
-    redirectToLogin();
+    goToHandoff();
   }
 
   function showSessionStuckMessage() {
@@ -102,10 +121,8 @@ import { createBrowserClient } from "https://cdn.jsdelivr.net/npm/@supabase/ssr@
     );
     box.innerHTML =
       '<h3 style="margin:0 0 10px;font-size:17px;">We could not carry your sign-in over</h3>' +
-      '<p style="margin:0 0 16px;color:#3a4149;">You are signed in, but this browser is not sharing ' +
-      "that session with this page. This is usually a blocked-cookie setting.</p>" +
-      '<p style="margin:0 0 16px;color:#3a4149;">On iPhone: Settings → Apps → Safari → turn off ' +
-      "<strong>Block All Cookies</strong>, then reload.</p>" +
+      '<p style="margin:0 0 16px;color:#3a4149;">Your sign-in did not reach this page. Opening ' +
+      "the tool from your account page is the most reliable route.</p>" +
       '<a href="' +
       HUB +
       '/account" style="display:inline-block;background:#0b3d2e;color:#fff;padding:10px 18px;' +

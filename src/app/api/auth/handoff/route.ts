@@ -43,8 +43,12 @@ export async function GET(request: Request) {
   } = await supabase.auth.getUser();
 
   if (!user) {
+    // Send them back through this route after login, not straight to the
+    // tool. The tool cannot read the hub's session on its own — that is the
+    // whole reason this route exists — so returning here is what makes the
+    // round trip end with a session instead of another bounce.
     return NextResponse.redirect(
-      `${SITE_URL}/login?tool=${tool}&next=${encodeURIComponent(toolUrl)}`,
+      `${SITE_URL}/login?tool=${tool}&next=${encodeURIComponent(`/api/auth/handoff?tool=${tool}`)}`,
     );
   }
 
@@ -53,8 +57,12 @@ export async function GET(request: Request) {
   } = await supabase.auth.getSession();
 
   if (!session?.access_token || !session?.refresh_token) {
+    // Send them back through this route after login, not straight to the
+    // tool. The tool cannot read the hub's session on its own — that is the
+    // whole reason this route exists — so returning here is what makes the
+    // round trip end with a session instead of another bounce.
     return NextResponse.redirect(
-      `${SITE_URL}/login?tool=${tool}&next=${encodeURIComponent(toolUrl)}`,
+      `${SITE_URL}/login?tool=${tool}&next=${encodeURIComponent(`/api/auth/handoff?tool=${tool}`)}`,
     );
   }
 
